@@ -61,6 +61,47 @@ def initialiser_db():
         );
         """)
 
+        # Table pour les revenus
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS revenus (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            montant REAL NOT NULL,
+            date_revenu TEXT NOT NULL
+        );
+        """)
+
+        # Table pour les dépenses récurrentes
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS depenses_recurrentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            montant REAL NOT NULL,
+            jour_du_mois INTEGER NOT NULL,
+            description TEXT,
+            FOREIGN KEY (item_id) REFERENCES items (id)
+        );
+        """)
+
+        # Table pour logger l'exécution des dépenses récurrentes
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS log_depenses_recurrentes (
+            id_recurrence INTEGER NOT NULL,
+            annee INTEGER NOT NULL,
+            mois INTEGER NOT NULL,
+            PRIMARY KEY (id_recurrence, annee, mois)
+        );
+        """)
+
+        # Table pour les budgets mensuels par catégorie
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            categorie TEXT NOT NULL UNIQUE,
+            montant_limite REAL NOT NULL
+        );
+        """)
+
         conn.commit()
         print(f"Base de données initialisée avec succès à l'emplacement : {DB_PATH}")
 
@@ -381,23 +422,224 @@ def get_historique_prix_item(item_id):
     df['date_changement'] = pd.to_datetime(df['date_changement'])
     return df
 
+def get_tous_les_revenus():
+    """Récupère tous les revenus, triés par date."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM revenus ORDER BY date_revenu DESC")
+    revenus = cursor.fetchall()
+    conn.close()
+    return revenus
+
+def enregistrer_revenu(source, montant, date_revenu):
+    """Enregistre un nouveau revenu dans la base de données."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        date_str = date_revenu.strftime('%Y-%m-%d')
+        cursor.execute("""
+            INSERT INTO revenus (source, montant, date_revenu)
+            VALUES (?, ?, ?)
+        """, (source, montant, date_str))
+        conn.commit()
+        messagebox.showinfo("Succès", "Revenu enregistré avec succès.")
+    except sqlite3.Error as e:
+        messagebox.showerror("Erreur", f"Erreur lors de l'enregistrement : {e}")
+    finally:
+        conn.close()
+
+def get_toutes_les_depenses_recurrentes():
+    """Récupère toutes les dépenses récurrentes avec le nom de l'item."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT dr.id, dr.description, i.nom, dr.montant, dr.jour_du_mois
+        FROM depenses_recurrentes dr
+        JOIN items i ON dr.item_id = i.id
+        ORDER BY dr.jour_du_mois
+    """)
+    recurrentes = cursor.fetchall()
+    conn.close()
+    return recurrentes
+
+def enregistrer_depense_recurrente(item_id, description, montant, jour):
+    """Enregistre une nouvelle dépense récurrente."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO depenses_recurrentes (item_id, description, montant, jour_du_mois)
+            VALUES (?, ?, ?, ?)
+        """, (item_id, description, montant, jour))
+        conn.commit()
+        messagebox.showinfo("Succès", "Dépense récurrente ajoutée.")
+    except sqlite3.Error as e:
+        messagebox.showerror("Erreur", f"Erreur lors de l'ajout : {e}")
+    finally:
+        conn.close()
+
+def supprimer_depense_recurrente(id_recurrente):
+    """Supprime une dépense récurrente par son ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM depenses_recurrentes WHERE id = ?", (id_recurrente,))
+        conn.commit()
+        messagebox.showinfo("Succès", "Dépense récurrente supprimée.")
+    except sqlite3.Error as e:
+        messagebox.showerror("Erreur", f"Erreur lors de la suppression : {e}")
+    finally:
+        conn.close()
+
+def get_categories_from_items():
+    """Récupère toutes les familles d'items uniques pour les utiliser comme catégories."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT famille FROM items WHERE famille IS NOT NULL AND famille != ''")
+    categories = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return categories
+
+def get_tous_les_budgets():
+    """Récupère tous les budgets définis."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, categorie, montant_limite FROM budgets ORDER BY categorie")
+    budgets = cursor.fetchall()
+    conn.close()
+    return budgets
+
+def enregistrer_budget(categorie, montant):
+    """Enregistre ou met à jour un budget pour une catégorie."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Utilise une instruction qui met à jour si la catégorie existe déjà
+        cursor.execute("""
+            INSERT INTO budgets (categorie, montant_limite) VALUES (?, ?)
+            ON CONFLICT(categorie) DO UPDATE SET montant_limite=excluded.montant_limite;
+        """, (categorie, montant))
+        conn.commit()
+        messagebox.showinfo("Succès", f"Budget pour '{categorie}' mis à jour.")
+    except sqlite3.Error as e:
+        messagebox.showerror("Erreur", f"Erreur lors de la sauvegarde du budget : {e}")
+    finally:
+        conn.close()
+
+def supprimer_budget(id_budget):
+    """Supprime un budget par son ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM budgets WHERE id = ?", (id_budget,))
+        conn.commit()
+        messagebox.showinfo("Succès", "Budget supprimé.")
+    except sqlite3.Error as e:
+        messagebox.showerror("Erreur", f"Erreur lors de la suppression du budget : {e}")
+    finally:
+        conn.close()
+
+import calendar
+
+def get_revenus_pour_mois_en_cours():
+    """Calcule le total des revenus pour le mois en cours."""
+    today = datetime.date.today()
+    start_of_month = today.replace(day=1).strftime('%Y-%m-%d')
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(montant) FROM revenus WHERE date_revenu >= ?", (start_of_month,))
+    result = cursor.fetchone()[0]
+    conn.close()
+    return result if result is not None else 0
+
+def get_depenses_pour_mois_en_cours():
+    """Calcule le total des dépenses pour le mois en cours."""
+    today = datetime.date.today()
+    start_of_month = today.replace(day=1).strftime('%Y-%m-%d')
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(quantite * prix_unitaire_historique) FROM depenses WHERE date_depense >= ?", (start_of_month,))
+    result = cursor.fetchone()[0]
+    conn.close()
+    return result if result is not None else 0
+
+def traiter_depenses_recurrentes():
+    """
+    Vérifie et enregistre les dépenses récurrentes dues pour le mois en cours.
+    S'assure qu'une dépense n'est enregistrée qu'une seule fois par mois.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    today = datetime.date.today()
+    current_year = today.year
+    current_month = today.month
+
+    cursor.execute("SELECT id, item_id, montant, jour_du_mois FROM depenses_recurrentes")
+    recurrentes = cursor.fetchall()
+
+    processed_count = 0
+    for id_rec, item_id, montant, jour in recurrentes:
+        cursor.execute("SELECT 1 FROM log_depenses_recurrentes WHERE id_recurrence = ? AND annee = ? AND mois = ?", (id_rec, current_year, current_month))
+        if cursor.fetchone():
+            continue  # Déjà traité
+
+        # Gère les mois plus courts (ex: jour 31 pour Février)
+        last_day_of_month = calendar.monthrange(current_year, current_month)[1]
+        jour_effectif = min(jour, last_day_of_month)
+
+        if today.day >= jour_effectif:
+            try:
+                date_depense = datetime.date(current_year, current_month, jour_effectif)
+                date_depense_str = date_depense.strftime('%Y-%m-%d')
+
+                # Enregistre la dépense avec une quantité de 1 et le montant fixe comme prix
+                cursor.execute("""
+                    INSERT INTO depenses (item_id, quantite, prix_unitaire_historique, date_depense)
+                    VALUES (?, 1, ?, ?)
+                """, (item_id, montant, date_depense_str))
+
+                # Log l'exécution pour ne pas la répéter ce mois-ci
+                cursor.execute("""
+                    INSERT INTO log_depenses_recurrentes (id_recurrence, annee, mois)
+                    VALUES (?, ?, ?)
+                """, (id_rec, current_year, current_month))
+
+                processed_count += 1
+            except sqlite3.Error as e:
+                print(f"Erreur lors du traitement de la dépense récurrente #{id_rec}: {e}")
+                continue
+
+    conn.commit()
+    conn.close()
+
+    if processed_count > 0:
+        messagebox.showinfo("Synchronisation", f"{processed_count} dépense(s) récurrente(s) ont été automatiquement ajoutée(s).")
+
+
 # --- Interface Utilisateur ---
 
 class GestionDepensesUI(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent  # Fenêtre principale
-        self.title("Gestion des Items")
-        self.geometry("1000x600")
+        self.title("Gestionnaire de Dépenses")
+        self.geometry("1200x700")
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Traitement automatique des dépenses récurrentes
+        traiter_depenses_recurrentes()
 
         # Création des widgets
         self.creer_widgets()
         self.rafraichir_liste_items()
 
     def on_closing(self):
-        """Affiche à nouveau la fenêtre principale lorsqu'on ferme celle-ci."""
+        """Affiche à nouveau la fenêtre principale et actualise le tableau de bord."""
+        self.parent.actualiser_dashboard()
         self.destroy()
         self.parent.deiconify()
 
@@ -425,6 +667,274 @@ class GestionDepensesUI(tk.Toplevel):
         rapports_tab = ttk.Frame(self.notebook)
         self.notebook.add(rapports_tab, text="Consultation & Rapports")
         self.creer_widgets_rapports(rapports_tab)
+
+        # --- Onglet 5: Gestion des Revenus ---
+        revenus_tab = ttk.Frame(self.notebook)
+        self.notebook.add(revenus_tab, text="Gestion des Revenus")
+        self.creer_widgets_revenus(revenus_tab)
+
+        # --- Onglet 6: Dépenses Récurrentes ---
+        recurrentes_tab = ttk.Frame(self.notebook)
+        self.notebook.add(recurrentes_tab, text="Dépenses Récurrentes")
+        self.creer_widgets_recurrentes(recurrentes_tab)
+
+        # --- Onglet 7: Gestion de Budget ---
+        budget_tab = ttk.Frame(self.notebook)
+        self.notebook.add(budget_tab, text="Gestion de Budget")
+        self.creer_widgets_budget(budget_tab)
+
+    def creer_widgets_budget(self, parent_frame):
+        """Crée les widgets pour l'onglet de gestion de budget."""
+        # --- Frame pour le formulaire ---
+        form_frame = ttk.LabelFrame(parent_frame, text="Définir un Budget Mensuel", padding="10")
+        form_frame.pack(fill="x", pady=5, padx=5)
+
+        ttk.Label(form_frame, text="Catégorie (Famille d'item):").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.budget_categorie_combo = ttk.Combobox(form_frame, state="readonly")
+        self.budget_categorie_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        # Charger les familles d'items existantes
+        self.charger_categories_budget()
+
+        ttk.Label(form_frame, text="Limite Mensuelle (MAD):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.budget_limite_entry = ttk.Entry(form_frame)
+        self.budget_limite_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        save_button = ttk.Button(form_frame, text="Définir/Mettre à jour", command=self.enregistrer_budget)
+        save_button.grid(row=2, column=1, sticky="e", padx=5, pady=10)
+
+        # --- Frame pour la liste des budgets ---
+        list_frame = ttk.LabelFrame(parent_frame, text="Budgets Actuels", padding="10")
+        list_frame.pack(expand=True, fill="both", pady=5, padx=5)
+
+        columns = ("id", "categorie", "limite")
+        self.budget_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
+        self.budget_tree.heading("id", text="ID")
+        self.budget_tree.heading("categorie", text="Catégorie")
+        self.budget_tree.heading("limite", text="Limite Mensuelle")
+        self.budget_tree.column("id", width=40, stretch=tk.NO)
+        self.budget_tree.pack(side="left", expand=True, fill="both")
+
+        delete_button = ttk.Button(list_frame, text="Supprimer le budget sélectionné", command=self.supprimer_budget_selectionne)
+        delete_button.pack(pady=5)
+
+        self.rafraichir_liste_budgets()
+
+    def charger_categories_budget(self):
+        """Charge les catégories (familles d'items) dans le combobox."""
+        categories = get_categories_from_items()
+        self.budget_categorie_combo['values'] = categories
+
+    def enregistrer_budget(self):
+        """Valide et enregistre le budget."""
+        categorie = self.budget_categorie_combo.get()
+        montant_str = self.budget_limite_entry.get()
+
+        if not categorie or not montant_str:
+            messagebox.showwarning("Champs Requis", "La catégorie et la limite sont obligatoires.")
+            return
+
+        try:
+            montant = float(montant_str)
+        except ValueError:
+            messagebox.showerror("Erreur de Format", "Le montant doit être un nombre.")
+            return
+
+        enregistrer_budget(categorie, montant)
+        self.rafraichir_liste_budgets()
+        self.budget_limite_entry.delete(0, tk.END)
+        self.budget_categorie_combo.set('')
+
+    def rafraichir_liste_budgets(self):
+        """Recharge la liste des budgets depuis la DB."""
+        for row in self.budget_tree.get_children():
+            self.budget_tree.delete(row)
+
+        budgets = get_tous_les_budgets()
+        for budget in budgets:
+            # budget = (id, categorie, limite)
+            limite_formatee = f"{budget[2]:.2f} MAD"
+            self.budget_tree.insert("", tk.END, values=(budget[0], budget[1], limite_formatee))
+
+    def supprimer_budget_selectionne(self):
+        """Supprime le budget sélectionné."""
+        selected_items = self.budget_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Aucune Sélection", "Veuillez sélectionner un budget à supprimer.")
+            return
+
+        id_budget = self.budget_tree.item(selected_items[0])["values"][0]
+        if messagebox.askyesno("Confirmation", "Êtes-vous sûr de vouloir supprimer ce budget ?"):
+            supprimer_budget(id_budget)
+            self.rafraichir_liste_budgets()
+
+    def creer_widgets_recurrentes(self, parent_frame):
+        """Crée les widgets pour l'onglet des dépenses récurrentes."""
+        # --- Frame pour le formulaire ---
+        form_frame = ttk.LabelFrame(parent_frame, text="Ajouter une Dépense Récurrente", padding="10")
+        form_frame.pack(fill="x", pady=5, padx=5)
+
+        ttk.Label(form_frame, text="Item concerné:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.recurrent_item_combo = ttk.Combobox(form_frame, state="readonly")
+        self.recurrent_item_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        # On charge les items dans le combobox
+        items = get_tous_les_items()
+        self.recurrent_item_map = {item[1]: item[0] for item in items}
+        self.recurrent_item_combo['values'] = list(self.recurrent_item_map.keys())
+
+        ttk.Label(form_frame, text="Description:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.recurrent_description_entry = ttk.Entry(form_frame)
+        self.recurrent_description_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(form_frame, text="Montant Fixe:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.recurrent_montant_entry = ttk.Entry(form_frame)
+        self.recurrent_montant_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(form_frame, text="Jour du Mois (1-31):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.recurrent_jour_entry = ttk.Entry(form_frame)
+        self.recurrent_jour_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+
+        save_button = ttk.Button(form_frame, text="Ajouter", command=self.enregistrer_depense_recurrente)
+        save_button.grid(row=4, column=1, sticky="e", padx=5, pady=10)
+
+        # --- Frame pour la liste et les actions ---
+        list_frame = ttk.LabelFrame(parent_frame, text="Dépenses Récurrentes Actives", padding="10")
+        list_frame.pack(expand=True, fill="both", pady=5, padx=5)
+
+        columns = ("id", "description", "item", "montant", "jour")
+        self.recurrentes_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
+        self.recurrentes_tree.heading("id", text="ID")
+        self.recurrentes_tree.heading("description", text="Description")
+        self.recurrentes_tree.heading("item", text="Item Associé")
+        self.recurrentes_tree.heading("montant", text="Montant")
+        self.recurrentes_tree.heading("jour", text="Jour du Mois")
+        self.recurrentes_tree.column("id", width=40, stretch=tk.NO)
+        self.recurrentes_tree.pack(expand=True, fill="both")
+
+        delete_button = ttk.Button(list_frame, text="Supprimer la sélection", command=self.supprimer_depense_recurrente_selectionnee)
+        delete_button.pack(pady=5)
+
+        self.rafraichir_liste_depenses_recurrentes()
+
+    def rafraichir_liste_depenses_recurrentes(self):
+        """Recharge la liste des dépenses récurrentes depuis la DB."""
+        for row in self.recurrentes_tree.get_children():
+            self.recurrentes_tree.delete(row)
+
+        recurrentes = get_toutes_les_depenses_recurrentes()
+        for rec in recurrentes:
+            # rec = (id, description, item_nom, montant, jour)
+            montant_formate = f"{rec[3]:.2f} MAD"
+            self.recurrentes_tree.insert("", tk.END, values=(rec[0], rec[1], rec[2], montant_formate, rec[4]))
+
+    def enregistrer_depense_recurrente(self):
+        """Valide et enregistre une nouvelle dépense récurrente."""
+        nom_item = self.recurrent_item_combo.get()
+        description = self.recurrent_description_entry.get()
+        montant_str = self.recurrent_montant_entry.get()
+        jour_str = self.recurrent_jour_entry.get()
+
+        if not nom_item or not montant_str or not jour_str:
+            messagebox.showwarning("Champs Requis", "L'item, le montant et le jour sont obligatoires.")
+            return
+
+        try:
+            item_id = self.recurrent_item_map[nom_item]
+            montant = float(montant_str)
+            jour = int(jour_str)
+            if not 1 <= jour <= 31:
+                raise ValueError("Le jour doit être entre 1 et 31.")
+        except (ValueError, KeyError) as e:
+            messagebox.showerror("Erreur de Format", f"Veuillez vérifier les valeurs saisies. {e}")
+            return
+
+        enregistrer_depense_recurrente(item_id, description, montant, jour)
+        self.rafraichir_liste_depenses_recurrentes()
+
+        # Vider les champs
+        self.recurrent_item_combo.set('')
+        self.recurrent_description_entry.delete(0, tk.END)
+        self.recurrent_montant_entry.delete(0, tk.END)
+        self.recurrent_jour_entry.delete(0, tk.END)
+
+    def supprimer_depense_recurrente_selectionnee(self):
+        """Supprime la dépense récurrente sélectionnée dans la liste."""
+        selected_items = self.recurrentes_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Aucune Sélection", "Veuillez sélectionner une dépense à supprimer.")
+            return
+
+        id_recurrente = self.recurrentes_tree.item(selected_items[0])["values"][0]
+        if messagebox.askyesno("Confirmation", "Êtes-vous sûr de vouloir supprimer cette dépense récurrente ?"):
+            supprimer_depense_recurrente(id_recurrente)
+            self.rafraichir_liste_depenses_recurrentes()
+
+    def creer_widgets_revenus(self, parent_frame):
+        """Crée les widgets pour l'onglet de gestion des revenus."""
+        # --- Frame pour le formulaire ---
+        form_frame = ttk.LabelFrame(parent_frame, text="Ajouter un Revenu", padding="10")
+        form_frame.pack(fill="x", pady=5, padx=5)
+
+        ttk.Label(form_frame, text="Source:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.revenu_source_entry = ttk.Entry(form_frame, width=40)
+        self.revenu_source_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(form_frame, text="Montant:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.revenu_montant_entry = ttk.Entry(form_frame)
+        self.revenu_montant_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(form_frame, text="Date (AAAA-MM-JJ):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.revenu_date_entry = ttk.Entry(form_frame)
+        self.revenu_date_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.revenu_date_entry.insert(0, datetime.date.today().strftime('%Y-%m-%d'))
+
+        save_button = ttk.Button(form_frame, text="Enregistrer le Revenu", command=self.enregistrer_nouveau_revenu)
+        save_button.grid(row=3, column=0, columnspan=2, pady=10)
+
+        # --- Frame pour la liste des revenus ---
+        list_frame = ttk.LabelFrame(parent_frame, text="Historique des Revenus", padding="10")
+        list_frame.pack(expand=True, fill="both", pady=5, padx=5)
+
+        columns = ("date", "source", "montant")
+        self.revenus_tree = ttk.Treeview(list_frame, columns=columns, show="headings")
+        self.revenus_tree.heading("date", text="Date")
+        self.revenus_tree.heading("source", text="Source")
+        self.revenus_tree.heading("montant", text="Montant")
+        self.revenus_tree.pack(expand=True, fill="both")
+
+        self.rafraichir_liste_revenus()
+
+    def rafraichir_liste_revenus(self):
+        """Recharge la liste des revenus depuis la DB."""
+        for row in self.revenus_tree.get_children():
+            self.revenus_tree.delete(row)
+
+        revenus = get_tous_les_revenus()
+        for revenu in revenus:
+            montant_formate = f"{revenu[2]:.2f} MAD"
+            self.revenus_tree.insert("", tk.END, values=(revenu[3], revenu[1], montant_formate))
+
+    def enregistrer_nouveau_revenu(self):
+        """Enregistre un nouveau revenu."""
+        source = self.revenu_source_entry.get()
+        montant_str = self.revenu_montant_entry.get()
+        date_str = self.revenu_date_entry.get()
+
+        if not source or not montant_str or not date_str:
+            messagebox.showwarning("Champs requis", "Tous les champs sont obligatoires.")
+            return
+
+        try:
+            montant = float(montant_str)
+            date_revenu = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            messagebox.showerror("Erreur de format", "Veuillez vérifier les valeurs saisies.")
+            return
+
+        enregistrer_revenu(source, montant, date_revenu)
+        self.rafraichir_liste_revenus()
+        self.revenu_source_entry.delete(0, tk.END)
+        self.revenu_montant_entry.delete(0, tk.END)
 
     def creer_widgets_rapports(self, parent_frame):
         """Crée les widgets pour l'onglet de consultation et de rapports."""
@@ -465,6 +975,27 @@ class GestionDepensesUI(tk.Toplevel):
         self.rapport_tree.heading("prix_unitaire", text="Prix Unitaire")
         self.rapport_tree.heading("total", text="Total")
         self.rapport_tree.pack(expand=True, fill="both")
+
+        # --- Frame pour le suivi des budgets ---
+        budget_status_frame = ttk.LabelFrame(parent_frame, text="Suivi des Budgets sur la Période", padding="10")
+        budget_status_frame.pack(fill="x", pady=10, padx=5)
+
+        columns = ("categorie", "limite", "depense", "restant", "utilisation")
+        self.budget_status_tree = ttk.Treeview(budget_status_frame, columns=columns, show="headings")
+        self.budget_status_tree.heading("categorie", text="Catégorie")
+        self.budget_status_tree.heading("limite", text="Budget Alloué")
+        self.budget_status_tree.heading("depense", text="Total Dépensé")
+        self.budget_status_tree.heading("restant", text="Solde Restant")
+        self.budget_status_tree.heading("utilisation", text="Utilisation (%)")
+
+        self.budget_status_tree.column("utilisation", anchor="center")
+
+        # Définir des tags pour la coloration
+        self.budget_status_tree.tag_configure('normal', background='white')
+        self.budget_status_tree.tag_configure('warning', background='#FFFFE0') # Jaune clair
+        self.budget_status_tree.tag_configure('danger', background='#FFD2D2') # Rouge clair
+
+        self.budget_status_tree.pack(expand=True, fill="both")
 
         # --- Frame pour les graphiques ---
         graph_frame = ttk.LabelFrame(parent_frame, text="Visualisation Graphique", padding="10")
@@ -637,44 +1168,62 @@ class GestionDepensesUI(tk.Toplevel):
         self.graph_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     def afficher_rapport(self):
-        """Affiche le rapport de dépenses pour la période sélectionnée."""
+        """Affiche le rapport de dépenses et le statut des budgets pour la période sélectionnée."""
         date_debut_str = self.rapport_date_debut_entry.get()
         date_fin_str = self.rapport_date_fin_entry.get()
 
         try:
-            # Valider les dates
             datetime.datetime.strptime(date_debut_str, '%Y-%m-%d')
             datetime.datetime.strptime(date_fin_str, '%Y-%m-%d')
         except ValueError:
             messagebox.showerror("Format de Date Invalide", "Veuillez utiliser le format AAAA-MM-JJ.")
             return
 
-        # Vider la vue précédente
+        # Vider les vues précédentes
         for row in self.rapport_tree.get_children():
             self.rapport_tree.delete(row)
+        for row in self.budget_status_tree.get_children():
+            self.budget_status_tree.delete(row)
 
-        # Récupérer les données
+        # --- Affichage des dépenses détaillées ---
         depenses = get_depenses_par_periode(date_debut_str, date_fin_str)
+        total_depenses_brut = sum(d[4] for d in depenses)
+        for date, nom, qte, prix, total in depenses:
+            self.rapport_tree.insert("", tk.END, values=(date, nom, qte, f"{prix:.2f} MAD", f"{total:.2f} MAD"))
+
+        # --- Calcul et affichage du total général ---
         total_ajustements = get_ajustements_par_periode(date_debut_str, date_fin_str)
-
-        total_depenses_brut = 0
-        for depense in depenses:
-            # depense = (date, nom, qte, prix, total)
-            date, nom, qte, prix, total = depense
-            prix_formate = f"{prix:.2f} MAD"
-            total_formate = f"{total:.2f} MAD"
-            self.rapport_tree.insert("", tk.END, values=(date, nom, qte, prix_formate, total_formate))
-            total_depenses_brut += total
-
-        # Calculer le total final
         total_final = total_depenses_brut + total_ajustements
-
-        # Mettre à jour le label
         signe_ajustement = "+" if total_ajustements >= 0 else ""
-        texte_total = (f"Total des dépenses: {total_depenses_brut:.2f} MAD | "
-                       f"Ajustements: {signe_ajustement}{total_ajustements:.2f} MAD | "
-                       f"Total Final: {total_final:.2f} MAD")
-        self.total_depenses_label.config(text=texte_total)
+        self.total_depenses_label.config(text=(
+            f"Total des dépenses: {total_depenses_brut:.2f} MAD | "
+            f"Ajustements: {signe_ajustement}{total_ajustements:.2f} MAD | "
+            f"Total Final: {total_final:.2f} MAD"
+        ))
+
+        # --- Traitement et affichage du suivi des budgets ---
+        depenses_df = get_depenses_par_periode_dataframe(date_debut_str, date_fin_str)
+        budgets = get_tous_les_budgets()
+        if not budgets: return # Ne rien faire s'il n'y a pas de budget
+
+        depenses_par_categorie = depenses_df.groupby('famille')['total'].sum()
+
+        for budget_id, categorie, limite in budgets:
+            depense_categorie = depenses_par_categorie.get(categorie, 0)
+            restant = limite - depense_categorie
+            utilisation_percent = (depense_categorie / limite * 100) if limite > 0 else 0
+
+            tag = 'normal'
+            if utilisation_percent > 100: tag = 'danger'
+            elif utilisation_percent > 85: tag = 'warning'
+
+            self.budget_status_tree.insert("", tk.END, tags=(tag,), values=(
+                categorie,
+                f"{limite:.2f} MAD",
+                f"{depense_categorie:.2f} MAD",
+                f"{restant:.2f} MAD",
+                f"{utilisation_percent:.1f}%"
+            ))
 
 
     def creer_widgets_ajustements(self, parent_frame):

@@ -20,28 +20,44 @@ class App(ThemedTk):
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill="both")
 
-        # Titre de la page d'accueil
-        title_label = ttk.Label(
-            main_frame,
-            text="Bienvenue",
-            font=("Helvetica", 18, "bold")
-        )
-        title_label.pack(pady=10)
+        # --- Tableau de Bord ---
+        dashboard_frame = ttk.LabelFrame(main_frame, text="Tableau de Bord (Mois en cours)", padding="15")
+        dashboard_frame.pack(pady=10, fill="x")
 
-        description_label = ttk.Label(
-            main_frame,
-            text="Veuillez sélectionner un module à lancer.",
-            font=("Helvetica", 10)
-        )
-        description_label.pack(pady=5)
+        self.revenus_label = ttk.Label(dashboard_frame, text="Revenus: ...", font=("Helvetica", 12))
+        self.revenus_label.pack(anchor="w", pady=2)
 
-        # Bouton pour lancer le module de gestion de dépenses
+        self.depenses_label = ttk.Label(dashboard_frame, text="Dépenses: ...", font=("Helvetica", 12))
+        self.depenses_label.pack(anchor="w", pady=2)
+
+        self.solde_label = ttk.Label(dashboard_frame, text="Solde: ...", font=("Helvetica", 14, "bold"))
+        self.solde_label.pack(anchor="w", pady=10)
+
+        # Bouton pour lancer le module de gestion
         launch_button = ttk.Button(
             main_frame,
-            text="Gestion de Dépenses",
+            text="Ouvrir le Gestionnaire de Dépenses",
             command=self.lancer_gestion_depenses
         )
-        launch_button.pack(pady=20, ipadx=10, ipady=5)
+        launch_button.pack(pady=10, ipadx=10, ipady=5, expand=True)
+
+        refresh_button = ttk.Button(main_frame, text="Actualiser le Tableau de Bord", command=self.actualiser_dashboard)
+        refresh_button.pack(pady=5)
+
+        # Charger les données initiales
+        self.actualiser_dashboard()
+
+    def actualiser_dashboard(self):
+        """Récupère et affiche les données financières du mois en cours."""
+        revenus = gestion_depenses.get_revenus_pour_mois_en_cours()
+        depenses = gestion_depenses.get_depenses_pour_mois_en_cours()
+        solde = revenus - depenses
+
+        self.revenus_label.config(text=f"Revenus du mois: {revenus:.2f} MAD")
+        self.depenses_label.config(text=f"Dépenses du mois: {depenses:.2f} MAD")
+
+        solde_color = "green" if solde >= 0 else "red"
+        self.solde_label.config(text=f"Solde actuel: {solde:.2f} MAD", foreground=solde_color)
 
     def lancer_gestion_depenses(self):
         # On cache la fenêtre principale et on ouvre celle du module
