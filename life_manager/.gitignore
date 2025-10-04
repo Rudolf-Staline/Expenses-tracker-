@@ -1,0 +1,14 @@
+# Rust
+/src-tauri/target/
+/src-tauri/Cargo.lock
+
+# Frontend
+/node_modules/
+/dist/
+
+# Database
+*.db
+*.db-journal
+
+# Logs
+*.log
