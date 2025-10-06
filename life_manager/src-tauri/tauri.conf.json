@@ -2,8 +2,8 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
+    "devPath": "http://localhost:5173",
+    "distDir": "/app/life_manager/dist",
     "withGlobalTauri": true
   },
   "package": {
@@ -21,7 +21,7 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.tauri.life-manager",
+      "identifier": "com.tauri.dev",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
@@ -36,10 +36,10 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 600,
         "resizable": true,
         "title": "Life Manager",
-        "width": 800
+        "width": 800,
+        "height": 600
       }
     ]
   }

@@ -1,0 +1,16 @@
+[package]
+name = "expense_manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Local dependency on the app_core crate
+app_core = { path = "../app_core" }
+
+# Workspace dependencies
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
