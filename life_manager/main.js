@@ -8,7 +8,7 @@ const itemList = document.querySelector("#item-list");
 
 async function refreshItems() {
   try {
-    const items = await invoke("get_all_active_items");
+    const items = await invoke("get_all_active_items_with_price");
     itemList.innerHTML = ""; // Clear existing list
 
     if (items.length === 0) {

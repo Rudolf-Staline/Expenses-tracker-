@@ -156,3 +156,60 @@ impl<'r> FromRow<'r, SqliteRow> for DailyAdjustment {
         })
     }
 }
+
+// --- Personal Life Module Models ---
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct JournalEntry {
+    pub id: i64,
+    pub title: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Display, EnumString, Default, PartialEq)]
+#[strum(serialize_all = "PascalCase")]
+pub enum PrayerStatus {
+    #[default]
+    Pending,
+    Answered,
+    Ongoing,
+}
+
+impl Type<Sqlite> for PrayerStatus {
+    fn type_info() -> SqliteTypeInfo {
+        <String as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for PrayerStatus {
+    fn encode_by_ref(&self, buf: &mut Vec<SqliteArgumentValue<'q>>) -> IsNull {
+        let s = self.to_string();
+        <String as Encode<'q, Sqlite>>::encode_by_ref(&s, buf)
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for PrayerStatus {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let s = <String as Decode<Sqlite>>::decode(value)?;
+        Self::from_str(&s).map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct PrayerRequest {
+    pub id: i64,
+    pub subject: String,
+    pub details: Option<String>,
+    pub status: PrayerStatus,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct BibleReading {
+    pub id: i64,
+    pub book: String,
+    pub chapter: i64,
+    pub verses: String,
+    pub read_at: DateTime<Utc>,
+}

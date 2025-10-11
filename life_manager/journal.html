@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal Life - Life Manager</title>
+  </head>
+
+  <body>
+    <div class="container">
+      <nav>
+        <a href="/">Home</a>
+        <a href="/journal.html">Journal</a>
+      </nav>
+      <h1>My Journal</h1>
+
+      <div class="card">
+        <h2>New Entry</h2>
+        <form id="add-journal-form">
+          <input id="journal-title" placeholder="Entry Title" required />
+          <textarea id="journal-content" placeholder="What's on your mind?" required></textarea>
+          <button type="submit">Add Entry</button>
+        </form>
+        <p id="form-message"></p>
+      </div>
+
+      <div class="card">
+        <h2>Recent Entries</h2>
+        <ul id="journal-list">
+          <!-- Entries will be dynamically inserted here -->
+        </ul>
+      </div>
+    </div>
+
+    <script type="module" src="/journal.js"></script>
+  </body>
+</html>

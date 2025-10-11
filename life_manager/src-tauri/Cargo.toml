@@ -25,6 +25,7 @@ strum = { workspace = true }
 # Local crate dependencies
 app_core = { path = "../crates/app_core" }
 expense_manager = { path = "../crates/expense_manager" }
+personal_life_manager = { path = "../crates/personal_life_manager" }
 
 
 [features]

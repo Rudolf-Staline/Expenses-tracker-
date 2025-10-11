@@ -29,7 +29,17 @@ async fn main() {
             // Expense commands
             commands::record_expense,
             commands::get_expenses_for_period,
-            commands::calculate_total_for_period
+            commands::calculate_total_for_period,
+            // Journal commands
+            commands::create_journal_entry,
+            commands::get_all_journal_entries,
+            // Prayer Request commands
+            commands::create_prayer_request,
+            commands::get_all_prayer_requests,
+            commands::update_prayer_status,
+            // Bible Reading commands
+            commands::log_bible_reading,
+            commands::get_all_bible_readings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,6 @@
-use app_core::models::{Family, Item};
-use expense_manager::{item_service::{self, ItemWithPrice}, expense_service};
+use app_core::models::{BibleReading, Family, Item, JournalEntry, PrayerRequest, PrayerStatus};
+use expense_manager::{expense_service, item_service::{self, ItemWithPrice}};
+use personal_life_manager::{bible_reading_service, journal_service, prayer_service};
 use sqlx::SqlitePool;
 use tauri::State;
 use chrono::NaiveDate;
@@ -105,6 +106,80 @@ pub async fn calculate_total_for_period(
 ) -> CommandResult<f64> {
     log::info!("Received calculate_total_for_period from {} to {}", start_date, end_date);
     expense_service::calculate_total_for_period(&state.db_pool, start_date, end_date)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// --- Journal Commands ---
+
+#[tauri::command]
+pub async fn create_journal_entry(
+    state: State<'_, AppState>,
+    title: String,
+    content: String,
+) -> CommandResult<JournalEntry> {
+    log::info!("Received create_journal_entry with title: {}", title);
+    journal_service::create_journal_entry(&state.db_pool, &title, &content)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_all_journal_entries(state: State<'_, AppState>) -> CommandResult<Vec<JournalEntry>> {
+    log::info!("Received get_all_journal_entries command");
+    journal_service::get_all_journal_entries(&state.db_pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// --- Prayer Request Commands ---
+
+#[tauri::command]
+pub async fn create_prayer_request(
+    state: State<'_, AppState>,
+    subject: String,
+    details: Option<String>,
+) -> CommandResult<PrayerRequest> {
+    prayer_service::create_prayer_request(&state.db_pool, &subject, details.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_all_prayer_requests(state: State<'_, AppState>) -> CommandResult<Vec<PrayerRequest>> {
+    prayer_service::get_all_prayer_requests(&state.db_pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_prayer_status(
+    state: State<'_, AppState>,
+    id: i64,
+    status: PrayerStatus,
+) -> CommandResult<()> {
+    prayer_service::update_prayer_status(&state.db_pool, id, status)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// --- Bible Reading Commands ---
+
+#[tauri::command]
+pub async fn log_bible_reading(
+    state: State<'_, AppState>,
+    book: String,
+    chapter: i64,
+    verses: String,
+) -> CommandResult<BibleReading> {
+    bible_reading_service::log_bible_reading(&state.db_pool, &book, chapter, &verses)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_all_bible_readings(state: State<'_, AppState>) -> CommandResult<Vec<BibleReading>> {
+    bible_reading_service::get_all_bible_readings(&state.db_pool)
         .await
         .map_err(|e| e.to_string())
 }
